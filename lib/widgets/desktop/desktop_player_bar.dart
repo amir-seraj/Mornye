@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'dart:math' as math;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/cupertino.dart' show CupertinoIcons;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mornye/controllers/player_metadata_controller.dart';
 import 'package:mornye/l10n/l10n.dart';
@@ -14,8 +17,10 @@ import 'package:mornye/theme/material_expressive.dart';
 import 'package:mornye/theme/mornye_theme.dart';
 import 'package:mornye/theme/player_artwork_theme.dart';
 import 'package:mornye/services/cast_output.dart';
+import 'package:mornye/services/playback_deck.dart' show playbackOutputVolume;
 import 'package:mornye/utils/lyrics_parser.dart';
 import 'package:mornye/utils/lyrics_timeline.dart';
+import 'package:mornye/utils/logger.dart';
 import 'package:mornye/utils/string_utils.dart';
 import 'package:mornye/widgets/app_icon.dart';
 import 'package:mornye/widgets/app_icon_button.dart';
@@ -39,8 +44,17 @@ import 'package:mornye/widgets/player_artwork.dart';
 import 'package:mornye/widgets/player_lyrics.dart';
 import 'package:mornye/widgets/player_volume_control.dart';
 import 'package:mornye/widgets/playback_seek_slider.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 part 'desktop_mini_player.dart';
+part 'desktop_retro_skin.dart';
+part 'desktop_gunmetal_skin.dart';
+part 'desktop_thorn_skin.dart';
+part 'desktop_machined_skin.dart';
+part 'desktop_vault_skin.dart';
+part 'desktop_jelly_skin.dart';
+part 'desktop_prophet_skin.dart';
 
 /// An explicit dismiss hides the idle bar. Any active track shows it again.
 final desktopPlayerDismissed = ValueNotifier<bool>(false);

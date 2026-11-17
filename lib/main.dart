@@ -52,6 +52,8 @@ import 'package:mornye/utils/local_library_scan_prefs.dart';
 import 'package:mornye/utils/logger.dart';
 import 'package:mornye/widgets/desktop/desktop_commands.dart'
     show restoreDesktopSidebar;
+import 'package:mornye/widgets/desktop/desktop_player_bar.dart'
+    show restoreDesktopMiniPlayerSkin;
 import 'package:mornye/widgets/desktop/desktop_inspector.dart'
     show bindDesktopFullScreenLyrics;
 import 'package:mornye/widgets/desktop/desktop_window.dart'
@@ -168,7 +170,10 @@ void main() {
         safValidation = _startSafTreeValidation(bootstrapSettings);
       }
       musicPlayerRuntime.configure(bootstrapSettings);
-      if (isDesktopPlatform) restoreDesktopSidebar(prefs);
+      if (isDesktopPlatform) {
+        restoreDesktopSidebar(prefs);
+        restoreDesktopMiniPlayerSkin(prefs);
+      }
       final bootstrapTheme = loadBootstrapThemeSettings(prefs);
       final initialSafAccessLost = await _detectInitialSafAccessLoss(
         safValidation,

@@ -212,6 +212,22 @@ Future<bool> openDesktopMiniPlayerWindow(Size size) async {
   }
 }
 
+/// Clears the window to transparent ([transparent]) or back to opaque, so
+/// the desktop shows wherever Flutter paints nothing. Returns whether the
+/// runner applied it; only the Linux runner can, on a compositing desktop.
+Future<bool> setDesktopWindowTransparent(bool transparent) async {
+  try {
+    final applied = await _windowChannel.invokeMethod<bool>('setTransparent', {
+      'transparent': transparent,
+    });
+    return applied ?? false;
+  } on MissingPluginException {
+    return false;
+  } on PlatformException {
+    return false;
+  }
+}
+
 /// Returns the window from the mini player to its full size and place.
 Future<void> closeDesktopMiniPlayerWindow() => _invokeWindow('closeMiniPlayer');
 

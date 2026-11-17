@@ -63,6 +63,8 @@ import 'package:mornye/widgets/desktop/desktop_commands.dart';
 import 'package:mornye/widgets/desktop/desktop_inspector.dart';
 import 'package:mornye/widgets/desktop/desktop_link_transfer_actions.dart';
 import 'package:mornye/widgets/desktop/desktop_navigation.dart';
+import 'package:mornye/widgets/desktop/desktop_player_bar.dart'
+    show desktopWindowSeeThrough;
 import 'package:mornye/utils/logger.dart';
 import 'package:mornye/utils/adaptive_layout.dart';
 import 'package:mornye/utils/android_tv.dart';
@@ -1091,30 +1093,36 @@ class _MainShellState extends ConsumerState<MainShell>
       final selectedTab = _tabForIndex(selectedDestination, showStore);
       return DownloadQueueFeedback(
         child: DesktopLinkTransferNotices(
-          child: Scaffold(
-            body: Consumer(
-              // The selection bar floats over the pages, not the sidebar.
-              child: SelectionOverlayHost(child: pageView),
-              builder: (context, ref, body) {
-                final queuedCount = _watchQueuedCount(ref);
-                return DesktopShellLayout(
-                  destinations: _desktopDestinations(
-                    showStore: showStore,
-                    // Mornye shows the queue on its Downloads link instead.
-                    queueCount: mornye ? 0 : queuedCount,
-                    repoUpdatesCount: _watchRepoUpdatesCount(ref),
-                  ),
-                  selected: selectedTab,
-                  onSelected: _onShellTabRequested,
-                  libraryLinks: mornye
-                      ? _desktopLibraryLinks(queueCount: queuedCount)
-                      : const [],
-                  // The Material rail opens playlists alone.
-                  onOpenLibraryLink: _openDesktopLibraryLink,
-                  onOpenProfile: mornye ? _openDesktopProfile : null,
-                  body: body!,
-                );
-              },
+          // The retro mini player skin needs the window see-through
+          // around its chassis, so the Scaffold stops painting there.
+          child: ValueListenableBuilder<bool>(
+            valueListenable: desktopWindowSeeThrough,
+            builder: (context, seeThrough, _) => Scaffold(
+              backgroundColor: seeThrough ? Colors.transparent : null,
+              body: Consumer(
+                // The selection bar floats over the pages, not the sidebar.
+                child: SelectionOverlayHost(child: pageView),
+                builder: (context, ref, body) {
+                  final queuedCount = _watchQueuedCount(ref);
+                  return DesktopShellLayout(
+                    destinations: _desktopDestinations(
+                      showStore: showStore,
+                      // Mornye shows the queue on its Downloads link instead.
+                      queueCount: mornye ? 0 : queuedCount,
+                      repoUpdatesCount: _watchRepoUpdatesCount(ref),
+                    ),
+                    selected: selectedTab,
+                    onSelected: _onShellTabRequested,
+                    libraryLinks: mornye
+                        ? _desktopLibraryLinks(queueCount: queuedCount)
+                        : const [],
+                    // The Material rail opens playlists alone.
+                    onOpenLibraryLink: _openDesktopLibraryLink,
+                    onOpenProfile: mornye ? _openDesktopProfile : null,
+                    body: body!,
+                  );
+                },
+              ),
             ),
           ),
         ),

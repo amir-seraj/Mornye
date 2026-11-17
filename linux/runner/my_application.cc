@@ -4,6 +4,8 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <gio/gunixsocketaddress.h>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -43,9 +45,153 @@ struct _MyApplication {
   gboolean has_mini_player_origin;
   gint mini_player_x;
   gint mini_player_y;
+
+  // The Flutter view, and whether the window has an alpha channel, so the
+  // retro mini player skin can let the desktop show around its chassis.
+  FlView* view;
+  gboolean rgba_visual;
+
+  // Hyprland ignores a tiled window's own resizes, so the mini player asks
+  // it over its IPC socket to float, size and pin the window. These hold
+  // what to give back when the panel closes.
+  gboolean hypr_managed;
+  gboolean hypr_was_tiled;
+  gint hypr_fullscreen;
+  gint hypr_fullscreen_client;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+// Sends |request| to Hyprland's command socket and returns its reply, or
+// nullptr outside Hyprland or when the socket does not answer.
+static gchar* hyprland_request(const gchar* request) {
+  const gchar* signature = g_getenv("HYPRLAND_INSTANCE_SIGNATURE");
+  const gchar* runtime = g_getenv("XDG_RUNTIME_DIR");
+  if (signature == nullptr || runtime == nullptr) return nullptr;
+  g_autofree gchar* path =
+      g_build_filename(runtime, "hypr", signature, ".socket.sock", nullptr);
+  g_autoptr(GSocketClient) client = g_socket_client_new();
+  g_autoptr(GSocketAddress) address = g_unix_socket_address_new(path);
+  g_autoptr(GSocketConnection) connection = g_socket_client_connect(
+      client, G_SOCKET_CONNECTABLE(address), nullptr, nullptr);
+  if (connection == nullptr) return nullptr;
+  GOutputStream* output =
+      g_io_stream_get_output_stream(G_IO_STREAM(connection));
+  if (!g_output_stream_write_all(output, request, strlen(request), nullptr,
+                                 nullptr, nullptr)) {
+    return nullptr;
+  }
+  GInputStream* input = g_io_stream_get_input_stream(G_IO_STREAM(connection));
+  GString* reply = g_string_new(nullptr);
+  gchar buffer[4096];
+  gssize read = 0;
+  while ((read = g_input_stream_read(input, buffer, sizeof(buffer), nullptr,
+                                     nullptr)) > 0) {
+    g_string_append_len(reply, buffer, read);
+  }
+  return g_string_free(reply, FALSE);
+}
+
+static void hyprland_dispatch(const gchar* commands) {
+  g_autofree gchar* reply = hyprland_request(commands);
+}
+
+// Reads the integer after |"key": | in Hyprland's JSON, or |fallback|.
+static gint hyprland_json_int(const gchar* json, const gchar* key,
+                              gint fallback) {
+  g_autofree gchar* needle = g_strdup_printf("\"%s\": ", key);
+  const gchar* at = json != nullptr ? strstr(json, needle) : nullptr;
+  if (at == nullptr) return fallback;
+  return static_cast<gint>(g_ascii_strtoll(at + strlen(needle), nullptr, 10));
+}
+
+// Where Hyprland has the window, by its top-left corner, when it is the
+// focused window (it is: the mini player opens and closes from its clicks).
+static gboolean hyprland_own_window(gint* x, gint* y, gboolean* floating,
+                                    gint* fullscreen, gint* client) {
+  g_autofree gchar* reply = hyprland_request("j/activewindow");
+  if (reply == nullptr ||
+      hyprland_json_int(reply, "pid", -1) != static_cast<gint>(getpid())) {
+    return FALSE;
+  }
+  const gchar* at = strstr(reply, "\"at\": [");
+  if (at != nullptr && x != nullptr && y != nullptr) {
+    sscanf(at + strlen("\"at\": ["), "%d, %d", x, y);
+  }
+  if (floating != nullptr) {
+    *floating = strstr(reply, "\"floating\": true") != nullptr;
+  }
+  if (fullscreen != nullptr) {
+    *fullscreen = hyprland_json_int(reply, "fullscreen", 0);
+  }
+  if (client != nullptr) {
+    *client = hyprland_json_int(reply, "fullscreenClient", 0);
+  }
+  return TRUE;
+}
+
+// The space bars and panels reserve along the top and right of the
+// monitor showing the window, so the panel opens clear of them.
+static void hyprland_reserved(gint* top, gint* right) {
+  *top = 0;
+  *right = 0;
+  g_autofree gchar* window = hyprland_request("j/activewindow");
+  const gint monitor = hyprland_json_int(window, "monitor", -1);
+  if (monitor < 0) return;
+  g_autofree gchar* monitors = hyprland_request("j/monitors");
+  g_autofree gchar* id = g_strdup_printf("\"id\": %d,", monitor);
+  const gchar* entry = monitors != nullptr ? strstr(monitors, id) : nullptr;
+  const gchar* reserved =
+      entry != nullptr ? strstr(entry, "\"reserved\": [") : nullptr;
+  if (reserved == nullptr) return;
+  gint left = 0;
+  gint bottom = 0;
+  sscanf(reserved + strlen("\"reserved\": ["), "%d, %d, %d, %d", &left, top,
+         right, &bottom);
+}
+
+typedef struct {
+  gint width;
+  gint height;
+  gboolean move;
+  gint x;
+  gint y;
+} HyprlandPlacement;
+
+// Sizes (and places) the floating panel. It waits a moment: Hyprland
+// clamps a resize to the window's minimum size until GTK has committed the
+// smaller one, and centers a window it has just floated.
+static gboolean hyprland_place_cb(gpointer data) {
+  HyprlandPlacement* place = static_cast<HyprlandPlacement*>(data);
+  const gint pid = static_cast<gint>(getpid());
+  g_autofree gchar* commands =
+      place->move
+          ? g_strdup_printf(
+                "[[BATCH]]dispatch resizewindowpixel exact %d %d,pid:%d;"
+                "dispatch movewindowpixel exact %d %d,pid:%d",
+                place->width, place->height, pid, place->x, place->y, pid)
+          : g_strdup_printf("dispatch resizewindowpixel exact %d %d,pid:%d",
+                            place->width, place->height, pid);
+  hyprland_dispatch(commands);
+  return G_SOURCE_REMOVE;
+}
+
+// The panel's chrome on Hyprland: borderless and unshadowed while the
+// window is see-through, the user's decoration otherwise.
+static void hyprland_set_bare(gboolean bare) {
+  const gint pid = static_cast<gint>(getpid());
+  const gchar* value = bare ? "0" : "unset";
+  const gchar* flag = bare ? "1" : "unset";
+  g_autofree gchar* commands = g_strdup_printf(
+      "[[BATCH]]dispatch setprop pid:%d border_size %s;"
+      "dispatch setprop pid:%d rounding %s;"
+      "dispatch setprop pid:%d no_shadow %s;"
+      "dispatch setprop pid:%d no_blur %s;"
+      "dispatch setprop pid:%d opacity %s",
+      pid, value, pid, value, pid, flag, pid, flag, pid,
+      bare ? "1.0" : "unset");
+  hyprland_dispatch(commands);
+}
 
 static void audio_method_call_cb(FlMethodChannel* /*channel*/,
                                 FlMethodCall* call, gpointer user_data) {
@@ -133,6 +279,11 @@ static gboolean open_mini_player(MyApplication* self, gdouble width,
   gint y = 0;
   const gboolean opening = !self->mini_player;
   if (opening) {
+    gboolean hypr_floating = FALSE;
+    self->hypr_managed = hyprland_own_window(
+        nullptr, nullptr, &hypr_floating, &self->hypr_fullscreen,
+        &self->hypr_fullscreen_client);
+    self->hypr_was_tiled = self->hypr_managed && !hypr_floating;
     self->restore_maximized = gtk_window_is_maximized(window);
     if (self->restore_maximized) {
       // The maximized size is not a size to come back to.
@@ -149,6 +300,9 @@ static gboolean open_mini_player(MyApplication* self, gdouble width,
     gtk_window_set_decorated(window, FALSE);
     if (self->header_bar != nullptr) gtk_widget_hide(self->header_bar);
     gtk_window_set_keep_above(window, TRUE);
+    // Its own title lets tiling compositors (Hyprland, Sway) match the
+    // panel with a rule to float, pin and drop borders.
+    gtk_window_set_title(window, "Mornye Mini Player");
   }
   set_minimum_size(window, panel_width, panel_height);
   gtk_window_resize(window, panel_width, panel_height);
@@ -182,6 +336,38 @@ static gboolean open_mini_player(MyApplication* self, gdouble width,
     y = CLAMP(y, work.y, MAX(work.y, work.y + work.height - panel_height));
   }
   gtk_window_move(window, x, y);
+
+  if (self->hypr_managed && opening && !has_origin) {
+    gint reserved_top = 0;
+    gint reserved_right = 0;
+    hyprland_reserved(&reserved_top, &reserved_right);
+    x -= reserved_right;
+    y += reserved_top;
+  }
+  if (self->hypr_managed) {
+    const gint pid = static_cast<gint>(getpid());
+    GString* commands = g_string_new("[[BATCH]]");
+    if (opening && self->hypr_fullscreen != 0) {
+      g_string_append_printf(commands,
+                             "dispatch focuswindow pid:%d;"
+                             "dispatch fullscreenstate 0 0;",
+                             pid);
+    }
+    if (opening && self->hypr_was_tiled) {
+      g_string_append_printf(commands, "dispatch setfloating pid:%d;", pid);
+    }
+    if (opening) g_string_append_printf(commands, "dispatch pin pid:%d", pid);
+    if (commands->len > strlen("[[BATCH]]")) hyprland_dispatch(commands->str);
+    g_string_free(commands, TRUE);
+    HyprlandPlacement* place = g_new(HyprlandPlacement, 1);
+    place->width = panel_width;
+    place->height = panel_height;
+    place->move = opening;
+    place->x = x;
+    place->y = y;
+    g_timeout_add_full(G_PRIORITY_DEFAULT, 150, hyprland_place_cb, place,
+                       g_free);
+  }
   return TRUE;
 }
 
@@ -193,6 +379,7 @@ static void close_mini_player(MyApplication* self) {
   self->has_mini_player_origin = TRUE;
   self->mini_player = FALSE;
   gtk_window_set_keep_above(window, FALSE);
+  gtk_window_set_title(window, "Mornye");
   gtk_window_set_decorated(window, self->restore_decorated);
   if (self->header_bar != nullptr && self->restore_decorated)
     gtk_widget_show(self->header_bar);
@@ -200,6 +387,53 @@ static void close_mini_player(MyApplication* self) {
   gtk_window_resize(window, self->restore_width, self->restore_height);
   gtk_window_move(window, self->restore_x, self->restore_y);
   if (self->restore_maximized) gtk_window_maximize(window);
+
+  if (self->hypr_managed) {
+    self->hypr_managed = FALSE;
+    gint hx = 0;
+    gint hy = 0;
+    if (hyprland_own_window(&hx, &hy, nullptr, nullptr, nullptr)) {
+      self->mini_player_x = hx;
+      self->mini_player_y = hy;
+    }
+    const gint pid = static_cast<gint>(getpid());
+    hyprland_set_bare(FALSE);
+    GString* commands =
+        g_string_new(nullptr);
+    g_string_append_printf(commands, "[[BATCH]]dispatch pin pid:%d;", pid);
+    if (self->hypr_was_tiled) {
+      g_string_append_printf(commands, "dispatch settiled pid:%d", pid);
+    } else {
+      g_string_append_printf(commands,
+                             "dispatch resizewindowpixel exact %d %d,pid:%d",
+                             self->restore_width, self->restore_height, pid);
+    }
+    if (self->hypr_fullscreen != 0) {
+      g_string_append_printf(commands,
+                             ";dispatch focuswindow pid:%d;"
+                             "dispatch fullscreenstate %d %d",
+                             pid, self->hypr_fullscreen,
+                             self->hypr_fullscreen_client);
+    }
+    hyprland_dispatch(commands->str);
+    g_string_free(commands, TRUE);
+  }
+}
+
+// Clears the Flutter view to transparent instead of black, so the desktop
+// shows wherever Flutter paints nothing. Needs the RGBA visual chosen when
+// the window was created and a compositor; returns whether it applied.
+static gboolean set_window_transparent(MyApplication* self,
+                                       gboolean transparent) {
+  if (self->window == nullptr || self->view == nullptr) return FALSE;
+  if (transparent && !self->rgba_visual) return FALSE;
+  GdkRGBA color;
+  gdk_rgba_parse(&color, transparent ? "rgba(0,0,0,0)" : "#000000");
+  fl_view_set_background_color(self->view, &color);
+  gtk_widget_set_app_paintable(GTK_WIDGET(self->window), transparent);
+  if (self->hypr_managed) hyprland_set_bare(transparent);
+  gtk_widget_queue_draw(GTK_WIDGET(self->window));
+  return TRUE;
 }
 
 // Moves the window with the pointer, as dragging a title bar does.
@@ -270,6 +504,17 @@ static void window_method_call_cb(FlMethodChannel* channel,
                   ? fl_value_get_string(mode)
                   : nullptr));
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(accepted));
+  } else if (strcmp(method, "setTransparent") == 0) {
+    FlValue* value = arguments != nullptr &&
+                             fl_value_get_type(arguments) == FL_VALUE_TYPE_MAP
+                         ? fl_value_lookup_string(arguments, "transparent")
+                         : nullptr;
+    const gboolean transparent =
+        value != nullptr && fl_value_get_type(value) == FL_VALUE_TYPE_BOOL &&
+        fl_value_get_bool(value);
+    g_autoptr(FlValue) applied =
+        fl_value_new_bool(set_window_transparent(self, transparent));
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(applied));
   } else if (strcmp(method, "minimizeWindow") == 0) {
     gtk_window_iconify(self->window);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
@@ -371,6 +616,15 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
+  // An alpha channel, chosen before the window is realized, lets the retro
+  // mini player skin be see-through. The view stays opaque black otherwise.
+  GdkScreen* rgba_screen = gtk_window_get_screen(window);
+  GdkVisual* rgba_visual = gdk_screen_get_rgba_visual(rgba_screen);
+  if (rgba_visual != nullptr && gdk_screen_is_composited(rgba_screen)) {
+    gtk_widget_set_visual(GTK_WIDGET(window), rgba_visual);
+    self->rgba_visual = TRUE;
+  }
+
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
   // desktop).
@@ -430,6 +684,7 @@ static void my_application_activate(GApplication* application) {
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
   self->window = window;
+  self->view = view;
   g_signal_connect(window, "window-state-event", G_CALLBACK(window_state_cb),
                    self);
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();

@@ -18,7 +18,9 @@ Size _miniPlayerSize({required bool lyrics}) => Size(
 
 /// The content size requested from the native mini player window.
 Size get desktopMiniPlayerSize =>
-    _miniPlayerSize(lyrics: desktopMiniPlayerLyrics.value);
+    desktopMiniPlayerSkin.value == DesktopMiniPlayerSkin.classic
+    ? _miniPlayerSize(lyrics: desktopMiniPlayerLyrics.value)
+    : _chassisSize(desktopMiniPlayerSkin.value);
 
 bool _miniPlayerBusy = false;
 
@@ -40,8 +42,13 @@ Future<void> setDesktopMiniPlayer({required bool open}) async {
       desktopPlayerDismissed.value = false;
       desktopMiniPlayerOpen.value = true;
       final opened = await openDesktopMiniPlayerWindow(desktopMiniPlayerSize);
-      if (!opened) desktopMiniPlayerOpen.value = false;
+      if (!opened) {
+        desktopMiniPlayerOpen.value = false;
+      } else if (desktopMiniPlayerSkin.value != DesktopMiniPlayerSkin.classic) {
+        await _setWindowSeeThrough(true);
+      }
     } else {
+      await _setWindowSeeThrough(false);
       // The shell fades back with the window's actual size. Keep both
       // surfaces mounted until AppKit finishes restoring the frame.
       await closeDesktopMiniPlayerWindow();
@@ -113,7 +120,14 @@ class _DesktopMiniPlayerState extends ConsumerState<DesktopMiniPlayer> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: desktopMiniPlayerSkin,
+    builder: (context, skin, _) => skin == DesktopMiniPlayerSkin.classic
+        ? _buildClassic(context)
+        : _RetroMiniPlayer(skin: skin),
+  );
+
+  Widget _buildClassic(BuildContext context) {
     final mediaItem = ref.watch(currentMediaItemProvider).value;
     if (context.isMornye) return _buildPanel(context, mediaItem);
     return PlayerArtworkTheme(
@@ -186,7 +200,39 @@ class _DesktopMiniPlayerState extends ConsumerState<DesktopMiniPlayer> {
           height: 88,
           child: Row(
             children: [
-              _Artwork(mediaItem: mediaItem, size: 72, radius: mornye ? 8 : 12),
+              // The skin switch rides on the artwork's corner, so the
+              // transport keeps its width.
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  _Artwork(
+                    mediaItem: mediaItem,
+                    size: 72,
+                    radius: mornye ? 8 : 12,
+                  ),
+                  Positioned(
+                    right: -6,
+                    bottom: -6,
+                    child: AppIconButton(
+                      key: const ValueKey('desktop-mini-player-skin'),
+                      tooltip: l10n.desktopMiniPlayerRetroSkin,
+                      iconSize: 14,
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size.square(26),
+                        padding: const EdgeInsets.all(4),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.9),
+                      ),
+                      color: colorScheme.onSurface,
+                      icon: const AppIcon(Icons.palette_outlined),
+                      onPressed: () => unawaited(
+                        setDesktopMiniPlayerSkin(DesktopMiniPlayerSkin.retro),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

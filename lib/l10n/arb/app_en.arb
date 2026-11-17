@@ -9100,6 +9100,54 @@
   "@desktopMiniPlayerExpand": {
     "description": "Mini player button that returns the window to its full size"
   },
+  "desktopMiniPlayerRetroSkin": "Retro Skin",
+  "@desktopMiniPlayerRetroSkin": {
+    "description": "Mini player button that switches to the retro skin, a floating chassis in the style of early 2000s media player skins"
+  },
+  "desktopMiniPlayerClassicSkin": "Classic Skin",
+  "@desktopMiniPlayerClassicSkin": {
+    "description": "Retro mini player button that switches back to the regular mini player"
+  },
+  "desktopMiniPlayerStop": "Stop",
+  "@desktopMiniPlayerStop": {
+    "description": "Retro mini player button that pauses and returns to the start of the track"
+  },
+  "desktopMiniPlayerVisualizer": "Visualizer Style",
+  "@desktopMiniPlayerVisualizer": {
+    "description": "Retro mini player button that cycles the look of the screen's visualizer"
+  },
+  "desktopMiniPlayerVolumeDown": "Volume Down",
+  "@desktopMiniPlayerVolumeDown": {
+    "description": "Retro mini player button that lowers the volume"
+  },
+  "desktopMiniPlayerVolumeUp": "Volume Up",
+  "@desktopMiniPlayerVolumeUp": {
+    "description": "Retro mini player button that raises the volume"
+  },
+  "desktopMiniPlayerChooseFace": "Choose Face Picture…",
+  "@desktopMiniPlayerChooseFace": {
+    "description": "Retro mini player menu item, from right-clicking the chassis's jaw, that picks an image to show there"
+  },
+  "desktopMiniPlayerRemoveFace": "Remove Face Picture",
+  "@desktopMiniPlayerRemoveFace": {
+    "description": "Retro mini player menu item that removes the picture shown in the chassis's jaw"
+  },
+  "desktopMiniPlayerNextSkin": "Next Skin",
+  "@desktopMiniPlayerNextSkin": {
+    "description": "Mini player skin button that switches to the next skin"
+  },
+  "desktopMiniPlayerSkipBack": "Back 10 Seconds",
+  "@desktopMiniPlayerSkipBack": {
+    "description": "Thorn mini player key that jumps back ten seconds in the track"
+  },
+  "desktopMiniPlayerSkipForward": "Forward 10 Seconds",
+  "@desktopMiniPlayerSkipForward": {
+    "description": "Thorn mini player key that jumps ahead ten seconds in the track"
+  },
+  "desktopMiniPlayerMinimize": "Minimize",
+  "@desktopMiniPlayerMinimize": {
+    "description": "Retro mini player button that minimizes the window"
+  },
   "desktopMenuRefresh": "Refresh",
   "@desktopMenuRefresh": {
     "description": "View menu item and Keyboard Shortcuts row that reloads the page on screen (Home, Repo, statistics)"
@@ -10503,5 +10551,26 @@
   "lyricsEditLineActions": "Line actions",
   "lyricsEditSaved": "Lyrics saved",
   "lyricsEditSaveFailed": "Couldn't save the lyrics to this file",
-  "lyricsEditReadOnly": "Lyrics can't be saved to this song's file"
+  "lyricsEditReadOnly": "Lyrics can't be saved to this song's file",
+  "desktopRetroBalance": "Balance",
+  "@desktopRetroBalance": {
+    "description": "Decorative balance fader in the retro skin"
+  },
+  "desktopRetroVolume": "Volume",
+  "@desktopRetroVolume": {
+    "description": "Output volume fader in the retro skin"
+  },
+  "desktopRetroReset": "reset",
+  "@desktopRetroReset": {
+    "description": "Reset the decorative retro equalizer faders"
+  },
+  "desktopRetroQueue": "PLAY QUEUE",
+  "@desktopRetroQueue": {
+    "description": "Compact queue heading in the retro skin"
+  },
+  "desktopProphetSlogan": "The End is near!",
+  "@desktopProphetSlogan": {"description": "Hand-lettered slogan on the prophet mini player sandwich board"},
+  "desktopProphetSeek": "Seek through the prophecy",
+  "@desktopProphetSeek": {"description": "Accessible label for the prophet mini player seek slider"}
+
 }
